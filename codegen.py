@@ -67,11 +67,20 @@ class Field:
             assert False, ("field type %s not handled" % (type(field.type)))
 
 
+class Argument:
+    __slots__ = ['name', 'c_type']
+
+    def __init__(self, name, c_type: str = 'void'):
+        self.name = name
+        self.c_type = c_type
+
+
 class CodeBlock:
-    __slots__ = ['indent']
+    __slots__ = ['indent', 'condition_started']
 
     def __init__(self):
         self.indent = 0
+        self.condition_started = False
 
     def __do_indent(self, outputfile):
         tabs = '\t' * self.indent
@@ -84,6 +93,24 @@ class CodeBlock:
         outputfile.write('{\n')
         self.indent += 1
 
+    def __flatten_args(self, args: [Argument]):
+        flattened_args = 'void'
+        if args is not None:
+            flattened_args = ", ".join(map(lambda a: "%s %s" % (a.c_type, a.name), args))
+        return flattened_args
+
+    def __static(self, static: bool):
+        return 'static ' if static else ''
+
+    def function_prototype(self, name, output_file, rtype: str = 'void', static=False, args: [Argument] = None):
+        self.__do_indent(output_file)
+
+        output_file.write('%s%s %s(%s);\n' % (self.__static(static), rtype, name, self.__flatten_args(args)))
+
+    def start_function(self, name, output_file, rtype: str = 'void', static=False, args: [Argument] = None):
+        self.start_scope(output_file,
+                         '%s%s %s(%s)' % (self.__static(static), rtype, name, self.__flatten_args(args)))
+
     def end_scope(self, outputfile, terminate=False):
         self.indent -= 1
         self.__do_indent(outputfile)
@@ -92,23 +119,8 @@ class CodeBlock:
         else:
             outputfile.write('}\n')
 
-    def start_condition(self, condition, outputfile):
-        self.__do_indent(outputfile)
-        outputfile.write('if(%s){\n' % condition)
-        self.indent += 1
-
-    def add_else(self, outputfile):
-        self.indent -= 1
-        self.__do_indent(outputfile)
-        outputfile.write('}\n')
-        self.__do_indent(outputfile)
-        outputfile.write('else {\n')
-        self.indent += 1
-
-    def end_condition(self, outputfile):
-        self.indent -= 1
-        self.__do_indent(outputfile)
-        outputfile.write('}\n')
+    def end_function(self, outputfile):
+        self.end_scope(outputfile)
 
     def add_statement(self, statement: str, outputfile):
         self.__do_indent(outputfile)
@@ -128,6 +140,46 @@ class CodeBlock:
 
     def write(self, outputfile):
         outputfile.write('// empty code block\n\n')
+
+    # comments
+    def add_comment(self, comment, outputfile):
+        self.__do_indent(outputfile)
+        outputfile.write('//%s\n' % comment)
+
+    # conditions
+    def start_condition(self, condition, outputfile):
+        self.__do_indent(outputfile)
+        outputfile.write('if(%s){\n' % condition)
+        self.indent += 1
+        self.condition_started = True
+
+    def alternative_condition(self, condition, outputfile):
+        self.indent -= 1
+        self.__do_indent(outputfile)
+        outputfile.write('}\n')
+        self.__do_indent(outputfile)
+        outputfile.write('else if(%s){\n' % condition)
+        self.indent += 1
+
+    def start_or_alternative(self, condition, outputfile):
+        if self.condition_started:
+            self.alternative_condition(condition, outputfile)
+        else:
+            self.start_condition(condition, outputfile)
+
+    def add_else(self, outputfile):
+        self.indent -= 1
+        self.__do_indent(outputfile)
+        outputfile.write('}\n')
+        self.__do_indent(outputfile)
+        outputfile.write('else {\n')
+        self.indent += 1
+
+    def end_condition(self, outputfile):
+        self.indent -= 1
+        self.__do_indent(outputfile)
+        outputfile.write('}\n')
+        self.condition_started = False
 
 
 class HeaderBlock(CodeBlock):
