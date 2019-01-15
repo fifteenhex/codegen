@@ -2,6 +2,7 @@ from pycparser import parse_file
 from pycparser.c_ast import Typedef, TypeDecl, Struct, Decl, IdentifierType, PtrDecl
 from pycparser.c_ast import Enum as CEnum
 from enum import Enum
+import argparse
 
 
 def annotation_type_from_field_name(field_name: str):
@@ -224,3 +225,10 @@ def enum_by_name(ast, name: (str)):
         if type(child) is Decl and type(child.type) is CEnum:
             return child.type
     return None
+
+
+def create_args(tag: str):
+    parser = argparse.ArgumentParser(description='%s code gen' % tag)
+    parser.add_argument('--input', type=str, required=True)
+    parser.add_argument('--output', type=str, required=True)
+    return parser

@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 
-import argparse
 import codegen
 from pycparser.c_ast import Struct
 from enum import Enum
 import re
-
-parser = argparse.ArgumentParser(description='json code gen')
-parser.add_argument('--input', type=str, required=True)
-parser.add_argument('--output', type=str, required=True)
 
 TAG = 'jsongen'
 
@@ -314,7 +309,7 @@ def __struct_callback(ast, struct: Struct, flags: dict, outputs: list):
 
 
 if __name__ == '__main__':
-    args = parser.parse_args()
+    args = codegen.create_args(TAG).parse_args()
     print("%s processing %s -> %s" % (TAG, args.input, args.output))
 
     ast = codegen.parsefile(TAG, args.input)

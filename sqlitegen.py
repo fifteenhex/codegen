@@ -6,10 +6,6 @@ from pycparser.c_ast import Typedef, TypeDecl, Struct, Decl, IdentifierType, Ptr
 
 TAG = 'sqlite'
 
-parser = argparse.ArgumentParser(description='sqlite code gen')
-parser.add_argument('--input', type=str, required=True)
-parser.add_argument('--output', type=str, required=True)
-
 annotation_types = [
     'flags',
     'constraints',
@@ -388,7 +384,7 @@ def __table_name_from_struct_annotation(tables: dict, annotated_struct: codegen.
 
 
 if __name__ == '__main__':
-    args = parser.parse_args()
+    args = codegen.create_args(TAG).parse_args()
     print("sqlitegen processing %s -> %s" % (args.input, args.output))
 
     ast = codegen.parsefile('sqlitegen', args.input)
