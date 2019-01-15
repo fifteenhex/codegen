@@ -312,7 +312,7 @@ if __name__ == '__main__':
     args = codegen.create_args(TAG).parse_args()
     print("%s processing %s -> %s" % (TAG, args.input, args.output))
 
-    ast = codegen.parsefile(TAG, args.input)
+    ast = codegen.parsefile(TAG, args.input, args.headers)
     annotated_structs = codegen.find_annotated_structs(TAG, ['parser', 'builder'], ast)
 
     flags = {}

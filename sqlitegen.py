@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import argparse
 import codegen
 from pycparser.c_ast import Typedef, TypeDecl, Struct, Decl, IdentifierType, PtrDecl
 
@@ -387,7 +386,7 @@ if __name__ == '__main__':
     args = codegen.create_args(TAG).parse_args()
     print("sqlitegen processing %s -> %s" % (args.input, args.output))
 
-    ast = codegen.parsefile('sqlitegen', args.input)
+    ast = codegen.parsefile('sqlitegen', args.input, args.headers)
     structs = codegen.find_annotated_structs(TAG, ['table'], ast)
 
     tables = {}

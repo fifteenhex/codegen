@@ -145,10 +145,11 @@ def __fulltag(tag: str):
     return '__%s' % tag
 
 
-def parsefile(tag: str, input):
+def parsefile(tag: str, input, headers):
     barrier = '-D__%s' % tag.upper()
     ast = parse_file(input, use_cpp=True,
-                     cpp_args=[barrier, '-I/usr/share/python3-pycparser/fake_libc_include'])
+                     cpp_args=[barrier, '-I/usr/share/python3-pycparser/fake_libc_include',
+                               '-I%s' % headers])
     return ast
 
 
@@ -231,4 +232,5 @@ def create_args(tag: str):
     parser = argparse.ArgumentParser(description='%s code gen' % tag)
     parser.add_argument('--input', type=str, required=True)
     parser.add_argument('--output', type=str, required=True)
+    parser.add_argument('--headers', type=str, required=True)
     return parser
