@@ -15,23 +15,28 @@ class TopicPart:
 
 
 class Endpoint:
-    __slots__ = ['root', 'name', 'topic_parts']
+    __slots__ = ['root', 'name', 'topic_parts', 'shared_args']
 
-    def __init__(self, root: str, name: str, json_object: dict):
+    def __init__(self, root: str, name: str, json_object: dict, shared_args):
         self.root = root
         self.name = name
-        self.topic_parts = map(
+        self.topic_parts = list(map(
             lambda tp: TopicPart(tp) if json_object['topic_parts'][tp].get('c_type') is None else TopicPart(tp,
                                                                                                             json_object[
                                                                                                                 'topic_parts'][
                                                                                                                 tp][
                                                                                                                 'c_type']),
-            json_object['topic_parts'])
+            json_object['topic_parts']))
+        self.shared_args = shared_args
 
     def write(self, output_file):
-        handler = codegen.CodeBlock()
-        args = map(lambda tp: codegen.Argument(tp.name, tp.c_type), self.topic_parts)
-        handler.function_prototype('%s_%s' % (self.root, self.name), output_file, static=True, args=args)
+        handler = codegen.CodeBlock(output_file)
+        args = self.shared_args.copy()
+        args[1:1] = map(lambda tp: codegen.Argument(tp.name, tp.c_type), self.topic_parts)
+        handler.function_prototype(self.function_name(), static=True, args=args)
+
+    def function_name(self):
+        return '%s_%s' % (self.root, self.name)
 
 
 if __name__ == '__main__':
@@ -40,32 +45,35 @@ if __name__ == '__main__':
 
     output_file = open(args.output, 'w+')
 
-    codegen.HeaderBlock(TAG, args.input).write(output_file)
+    codegen.HeaderBlock(TAG, args.input, output_file).write()
 
     input = open(args.input)
     rpc_json = json.load(input)
 
     root = rpc_json['root']
 
-    onmsg = codegen.CodeBlock()
-    onmsg.function_prototype('%s_onmsg' % root, output_file)
+    shared_args = []
+    for k in ['context', 'request', 'response']:
+        shared_args.append(codegen.Argument(k, rpc_json[k]['c_type']))
+    dispatch_args = shared_args.copy()
+    dispatch_args[1:1] = [codegen.Argument('topicparts', 'const gchar**'), codegen.Argument('numtopicparts', 'int')]
 
     endpoints = []
     for endpoint in rpc_json['endpoints']:
-        endpoint = Endpoint(root, endpoint, rpc_json['endpoints'][endpoint])
+        endpoint = Endpoint(root, endpoint, rpc_json['endpoints'][endpoint], shared_args)
         endpoint.write(output_file)
         endpoints.append(endpoint)
 
-    dispatch_args = []
-    for k in ['context', 'request', 'response']:
-        dispatch_args.append(codegen.Argument(k, rpc_json[k]['c_type']))
-    dispatch_args[1:1] = [codegen.Argument('topicparts', 'const gchar**'), codegen.Argument('numtopicparts', 'int')]
-
-    dispatch = codegen.CodeBlock()
-    dispatch.start_function('__rpcgen_%s_dispatch' % root, output_file, static=True, args=dispatch_args)
-    dispatch.add_statement('const gchar* endpoint = topicparts[0]', output_file)
+    dispatch = codegen.CodeBlock(output_file=output_file)
+    dispatch.start_function('__rpcgen_%s_dispatch' % root, static=True, rtype='int', args=dispatch_args)
+    dispatch.add_statement('int ret = 0')
+    dispatch.add_statement('const gchar* endpoint = topicparts[0]')
     for endpoint in endpoints:
-        dispatch.add_comment(endpoint.name, output_file)
-        dispatch.start_or_alternative('0', output_file)
-    dispatch.end_condition(output_file)
-    dispatch.end_function(output_file)
+        dispatch.start_or_alternative('g_strcmp0(endpoint, "%s") == 0' % endpoint.name)
+        dispatch.add_comment(endpoint.name)
+        dispatch.start_condition('numtopicparts - 1 == %d' % len(endpoint.topic_parts))
+        dispatch.end_condition()
+        dispatch.add_statement('%s()' % endpoint.function_name())
+    dispatch.end_condition()
+    dispatch.add_statement('return ret')
+    dispatch.end_function()

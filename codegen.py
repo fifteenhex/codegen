@@ -76,22 +76,63 @@ class Argument:
 
 
 class CodeBlock:
-    __slots__ = ['indent', 'condition_started']
+    class Type(Enum):
+        NORMAL = 0
+        CONDITION = 1
 
-    def __init__(self):
-        self.indent = 0
-        self.condition_started = False
+    __slots__ = ['indent', '__original_indent',
+                 '__block_type', '__parent', '__sub_block',
+                 'output_file']
 
-    def __do_indent(self, outputfile):
+    def __init__(self, output_file, indent: int = 0, block_type=Type.NORMAL, parent=None):
+        self.indent = indent
+        self.__original_indent = indent
+
+        self.__block_type = block_type
+        self.__parent = parent
+        self.__sub_block = None
+
+        self.output_file = output_file
+
+    # indent handling
+
+    def __do_indent(self):
         tabs = '\t' * self.indent
-        outputfile.write(tabs)
+        self.output_file.write(tabs)
 
-    def start_scope(self, outputfile, prefix=None):
-        self.__do_indent(outputfile)
-        if prefix is not None:
-            outputfile.write(prefix)
-        outputfile.write('{\n')
+    def __inc_indent(self):
         self.indent += 1
+
+    def __dec_indent(self):
+        self.indent -= 1
+        assert self.indent >= self.__original_indent
+
+    # block chaining
+
+    def __get_active_block(self):
+        if self.__sub_block is not None:
+            return self.__sub_block.__get_active_block()
+        else:
+            return self
+
+    def __start_sub_block(self, block_type=Type.NORMAL):
+        self.__inc_indent()
+        self.__sub_block = CodeBlock(self.output_file, self.indent, block_type=block_type, parent=self)
+
+    def __close_sub_block(self):
+        assert self.__parent is not None
+        cb = self.__parent
+        cb.__dec_indent()
+        cb.__do_indent()
+        cb.output_file.write('}\n')
+        cb.__sub_block = None
+
+    def start_scope(self, prefix=None):
+        self.__do_indent()
+        if prefix is not None:
+            self.output_file.write(prefix)
+        self.output_file.write('{\n')
+        self.__inc_indent()
 
     def __flatten_args(self, args: [Argument]):
         flattened_args = 'void'
@@ -102,95 +143,102 @@ class CodeBlock:
     def __static(self, static: bool):
         return 'static ' if static else ''
 
-    def function_prototype(self, name, output_file, rtype: str = 'void', static=False, args: [Argument] = None):
-        self.__do_indent(output_file)
+    def function_prototype(self, name, rtype: str = 'void', static=False, args: [Argument] = None):
+        self.__do_indent()
+        self.output_file.write('%s%s %s(%s);\n' % (self.__static(static), rtype, name, self.__flatten_args(args)))
 
-        output_file.write('%s%s %s(%s);\n' % (self.__static(static), rtype, name, self.__flatten_args(args)))
+    def start_function(self, name, rtype: str = 'void', static=False, args: [Argument] = None,
+                       attributes: [str] = ['unused']):
+        attributes_string = ' '.join(map(lambda a: '__attribute__((%s))' % a, attributes))
+        self.start_scope(
+            '%s%s %s %s(%s)' % (self.__static(static), rtype, attributes_string, name, self.__flatten_args(args)))
 
-    def start_function(self, name, output_file, rtype: str = 'void', static=False, args: [Argument] = None):
-        self.start_scope(output_file,
-                         '%s%s %s(%s)' % (self.__static(static), rtype, name, self.__flatten_args(args)))
-
-    def end_scope(self, outputfile, terminate=False):
-        self.indent -= 1
-        self.__do_indent(outputfile)
+    def end_scope(self, terminate=False):
+        self.__dec_indent()
+        self.__do_indent()
         if terminate:
-            outputfile.write('};\n')
+            self.output_file.write('};\n')
         else:
-            outputfile.write('}\n')
+            self.output_file.write('}\n')
 
-    def end_function(self, outputfile):
-        self.end_scope(outputfile)
+    def end_function(self):
+        self.end_scope()
 
-    def add_statement(self, statement: str, outputfile):
-        self.__do_indent(outputfile)
-        outputfile.write('%s;\n' % statement)
+    def add_statement(self, statement: str):
+        self.__do_indent()
+        self.output_file.write('%s;\n' % statement)
 
-    def add_items(self, items: list, outputfile):
+    def add_items(self, items: list):
         for item in items:
-            self.__do_indent(outputfile)
-            outputfile.write('%s,\n' % item)
+            self.__do_indent()
+            self.output_file.write('%s,\n' % item)
 
-    def add_label(self, name: str, outputfile):
-        self.__do_indent(outputfile)
-        outputfile.write('%s:\n' % name)
+    def add_label(self, name: str):
+        self.__do_indent()
+        self.output_file.write('%s:\n' % name)
 
-    def add_break(self, outputfile):
-        self.add_statement('break', outputfile)
+    def add_break(self):
+        self.add_statement('break')
 
-    def write(self, outputfile):
-        outputfile.write('// empty code block\n\n')
+    def write(self):
+        self.output_file.write('// empty code block\n\n')
 
     # comments
-    def add_comment(self, comment, outputfile):
-        self.__do_indent(outputfile)
-        outputfile.write('//%s\n' % comment)
+    def add_comment(self, comment):
+        self.__do_indent()
+        self.output_file.write('//%s\n' % comment)
 
     # conditions
-    def start_condition(self, condition, outputfile):
-        self.__do_indent(outputfile)
-        outputfile.write('if(%s){\n' % condition)
-        self.indent += 1
-        self.condition_started = True
+    def start_condition(self, condition):
+        cb = self.__get_active_block()
+        assert cb.__sub_block is None
+        cb.__do_indent()
+        cb.output_file.write('if(%s){\n' % condition)
+        cb.__start_sub_block(block_type=CodeBlock.Type.CONDITION)
 
-    def alternative_condition(self, condition, outputfile):
-        self.indent -= 1
-        self.__do_indent(outputfile)
-        outputfile.write('}\n')
-        self.__do_indent(outputfile)
-        outputfile.write('else if(%s){\n' % condition)
-        self.indent += 1
+    @staticmethod
+    def __alternative_condition(codeblock, condition):
+        codeblock.__close_sub_block()
+        # return to the parent and open up a new condition
+        codeblock = codeblock.__parent
+        codeblock.__do_indent()
+        codeblock.output_file.write('else if(%s){\n' % condition)
+        codeblock.__start_sub_block(block_type=CodeBlock.Type.CONDITION)
 
-    def start_or_alternative(self, condition, outputfile):
-        if self.condition_started:
-            self.alternative_condition(condition, outputfile)
+    def alternative_condition(self, condition):
+        self.__alternative_condition(self.__get_active_block(), condition)
+
+    def start_or_alternative(self, condition):
+        cb = self.__get_active_block()
+        if cb.__block_type == CodeBlock.Type.CONDITION:
+            self.__alternative_condition(cb, condition)
         else:
-            self.start_condition(condition, outputfile)
+            cb.start_condition(condition)
 
-    def add_else(self, outputfile):
-        self.indent -= 1
-        self.__do_indent(outputfile)
-        outputfile.write('}\n')
-        self.__do_indent(outputfile)
-        outputfile.write('else {\n')
-        self.indent += 1
+    def add_else(self):
+        cb = self.__get_active_block()
+        cb.__close_sub_block()
 
-    def end_condition(self, outputfile):
-        self.indent -= 1
-        self.__do_indent(outputfile)
-        outputfile.write('}\n')
-        self.condition_started = False
+        cb = self.__get_active_block()
+        cb.__do_indent()
+        cb.output_file.write('else {\n')
+        cb.__start_sub_block()
+
+    def end_condition(self):
+        cb = self.__get_active_block()
+        cb.__close_sub_block()
 
 
 class HeaderBlock(CodeBlock):
     __slots__ = ['tag', 'input']
 
-    def __init__(self, tag: str, input):
+    def __init__(self, tag: str, input, output_file):
+        super(HeaderBlock, self).__init__(output_file)
         self.tag = tag
         self.input = input
 
-    def write(self, outputfile):
-        outputfile.write("//generated by %s from %s\n" % (self.tag, self.input))
+    def write(self):
+        self.output_file.write("//generated by %s from %s\n" % (self.tag, self.input))
 
 
 def __fulltag(tag: str):

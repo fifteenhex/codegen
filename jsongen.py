@@ -107,8 +107,8 @@ class JsonCodeBlock(codegen.CodeBlock):
 
             root.children.append(JsonField(json_member, json_type, field, field_annotations))
 
-    def __init__(self, struct_name: str, fields_and_annotations):
-        super(JsonCodeBlock, self).__init__()
+    def __init__(self, struct_name: str, fields_and_annotations, output_file):
+        super(JsonCodeBlock, self).__init__(output_file)
         self.struct_name = struct_name
         self.fields_and_annotations = fields_and_annotations
         self.root = JsonField(None, JsonFieldType.OBJECT)
@@ -116,69 +116,66 @@ class JsonCodeBlock(codegen.CodeBlock):
 
 
 class JsonParser(JsonCodeBlock):
-    def __init__(self, struct_name: str, fields_and_annotations):
-        super().__init__(struct_name, fields_and_annotations)
+    def __init__(self, struct_name: str, fields_and_annotations, output_file):
+        super().__init__(struct_name, fields_and_annotations, output_file)
 
-    def __get_int(self, member: str, field: codegen.Field, path, outputfile):
+    def __get_int(self, member: str, field: codegen.Field, path):
         self.add_statement('%s->%s = json_object_get_int_member((JsonObject*) root, "%s")' % (
-            self.struct_name, flatten_path(path, field.field_name), member), outputfile)
+            self.struct_name, flatten_path(path, field.field_name), member))
 
-    def __get_boolean(self, member: str, field: codegen.Field, path, outputfile):
+    def __get_boolean(self, member: str, field: codegen.Field, path):
         self.add_statement('%s->%s = json_object_get_boolean_member((JsonObject*) root, "%s")' % (
-            self.struct_name, flatten_path(path, field.field_name), member), outputfile)
+            self.struct_name, flatten_path(path, field.field_name), member))
 
-    def __get_double(self, member: str, field: codegen.Field, path, outputfile):
+    def __get_double(self, member: str, field: codegen.Field, path):
         self.add_statement('%s->%s = json_object_get_double_member((JsonObject*) root, "%s")' % (
-            self.struct_name, flatten_path(path, field.field_name), member), outputfile)
+            self.struct_name, flatten_path(path, field.field_name), member))
 
-    def __get_string(self, member: str, field: codegen.Field, path, outputfile):
+    def __get_string(self, member: str, field: codegen.Field, path):
         self.add_statement('%s->%s = json_object_get_string_member((JsonObject*) root, "%s")' % (
-            self.struct_name, flatten_path(path, field.field_name), member), outputfile)
+            self.struct_name, flatten_path(path, field.field_name), member))
 
-    def __get_base64blob(self, member: str, field: codegen.Field, path, outputfile):
-        self.start_scope(outputfile)
-        self.add_statement('const gchar* payloadb64 = json_object_get_string_member((JsonObject*) root, "%s")' % member,
-                           outputfile)
+    def __get_base64blob(self, member: str, field: codegen.Field, path):
+        self.start_scope()
+        self.add_statement('const gchar* payloadb64 = json_object_get_string_member((JsonObject*) root, "%s")' % member)
         self.add_statement('%s->%s = g_base64_decode(payloadb64, &%s->%slen)' % (
             self.struct_name, flatten_path(path, field.field_name), self.struct_name,
-            flatten_path(path, field.field_name)),
-                           outputfile)
-        self.end_scope(outputfile)
+            flatten_path(path, field.field_name)))
+        self.end_scope()
 
-    def __get_enum(self, member: str, field: codegen.Field, path, outputfile):
+    def __get_enum(self, member: str, field: codegen.Field, path):
         # create a struct for string->enum mapping
-        self.start_scope(outputfile, prefix='struct mapping ')
-        self.add_statement("const gchar* str", outputfile)
-        self.add_statement("enum %s val" % field.c_type, outputfile)
-        self.end_scope(outputfile, terminate=True)
+        self.start_scope(prefix='struct mapping ')
+        self.add_statement("const gchar* str")
+        self.add_statement("enum %s val" % field.c_type)
+        self.end_scope(terminate=True)
 
         # fill in the mappings
-        self.start_scope(outputfile, prefix='const struct mapping map[] = ')
+        self.start_scope(prefix='const struct mapping map[] = ')
         mappings = []
         for v in field.enum.values:
             v.show()
             matches = re.search('%s_(.*)' % field.enum.name.upper(), v.name)
             mappings.append('{ .str = \"%s\", .val = %s }' % (matches.group(1), v.name))
             mappings.append('{ .str = \"%s\", .val = %s }' % (matches.group(1).lower(), v.name))
-        self.add_items(mappings, outputfile)
-        self.end_scope(outputfile, terminate=True)
+        self.add_items(mappings)
+        self.end_scope(terminate=True)
 
-        self.add_statement('const gchar* enumtmp = json_object_get_string_member((JsonObject*)root, "%s")' % (member),
-                           outputfile)
-        self.start_scope(outputfile, prefix='for(int i = 0; i < G_N_ELEMENTS(map); i++)')
-        self.start_condition('strcmp(enumtmp, map[i].str) == 0', outputfile)
+        self.add_statement('const gchar* enumtmp = json_object_get_string_member((JsonObject*)root, "%s")' % (member))
+        self.start_scope(prefix='for(int i = 0; i < G_N_ELEMENTS(map); i++)')
+        self.start_condition('strcmp(enumtmp, map[i].str) == 0')
         self.add_statement('%s->%s = map[i].val' % (
-            self.struct_name, flatten_path(path, field.field_name)), outputfile)
-        self.add_break(outputfile)
-        self.end_condition(outputfile)
-        self.end_scope(outputfile, terminate=True)
+            self.struct_name, flatten_path(path, field.field_name)))
+        self.add_break()
+        self.end_condition()
+        self.end_scope(terminate=True)
 
     def __write(self, field: JsonField, path=[]):
 
         member = field.type is not JsonFieldType.INLINE and field is not self.root
 
         if member:
-            self.start_condition('json_object_has_member((JsonObject*) root, "%s")' % field.name, outputfile)
+            self.start_condition('json_object_has_member((JsonObject*) root, "%s")' % field.name)
 
         if field.type == JsonFieldType.OBJECT or field.type == JsonFieldType.INLINE:
             if field.c_field is not None:
@@ -186,111 +183,112 @@ class JsonParser(JsonCodeBlock):
             for c in field.children:
                 self.__write(c, path.copy())
         elif field.type == JsonFieldType.INT:
-            self.__get_int(field.name, field.c_field, path, outputfile)
+            self.__get_int(field.name, field.c_field, path)
         elif field.type == JsonFieldType.BOOLEAN:
-            self.__get_boolean(field.name, field.c_field, path, outputfile)
+            self.__get_boolean(field.name, field.c_field, path)
         elif field.type == JsonFieldType.DOUBLE:
-            self.__get_double(field.name, field.c_field, path, outputfile)
+            self.__get_double(field.name, field.c_field, path)
         elif field.type == JsonFieldType.STRING:
-            self.__get_string(field.name, field.c_field, path, outputfile)
+            self.__get_string(field.name, field.c_field, path)
         elif field.type == JsonFieldType.BASE64BLOB:
-            self.__get_base64blob(field.name, field.c_field, path, outputfile)
+            self.__get_base64blob(field.name, field.c_field, path)
         elif field.type == JsonFieldType.ENUM:
-            self.__get_enum(field.name, field.c_field, path, outputfile)
+            self.__get_enum(field.name, field.c_field, path)
         else:
             assert False, ('couldn\'t write json type %s' % field.type)
 
         if member:
             if not field.optional:
-                self.add_else(outputfile)
-                self.add_statement('goto err', outputfile)
-            self.end_condition(outputfile)
+                self.add_else()
+                self.add_statement('goto err', )
+            self.end_condition()
 
-    def write(self, outputfile):
-        self.start_scope(outputfile,
-                         prefix='static gboolean __attribute__((unused)) __%s_%s_from_json(struct %s* %s, const JsonObject* root)' % (
-                             TAG, self.struct_name, self.struct_name, self.struct_name))
+    def write(self):
+        self.start_scope(
+            prefix='static gboolean __attribute__((unused)) __%s_%s_from_json(struct %s* %s, const JsonObject* root)' % (
+                TAG, self.struct_name, self.struct_name, self.struct_name))
         self.__write(self.root)
-        self.add_statement('return TRUE', outputfile)
-        self.add_label('err', outputfile)
-        self.add_statement('return FALSE', outputfile)
-        outputfile.write('}\n\n')
+        self.add_statement('return TRUE')
+        self.add_label('err')
+        self.add_statement('return FALSE')
+        self.output_file.write('}\n\n')
 
 
 class JsonBuilder(JsonCodeBlock):
 
-    def __add_int(self, field: codegen.Field, path, outputfile):
-        outputfile.write('\tjson_builder_add_int_value(jsonbuilder, %s->%s);\n' % (
+    def __add_int(self, field: codegen.Field, path):
+        self.add_statement('json_builder_add_int_value(jsonbuilder, %s->%s)' % (
             self.struct_name, flatten_path(path, field.field_name)))
 
-    def __add_double(self, field: codegen.Field, path, outputfile):
-        outputfile.write('\tjson_builder_add_double_value(jsonbuilder, %s->%s);\n' % (
+    def __add_double(self, field: codegen.Field, path):
+        self.add_statement('json_builder_add_double_value(jsonbuilder, %s->%s)' % (
             self.struct_name, flatten_path(path, field.field_name)))
 
-    def __add_string(self, field: codegen.Field, path, outputfile):
-        outputfile.write('\tjson_builder_add_string_value(jsonbuilder, %s->%s);\n' % (
+    def __add_string(self, field: codegen.Field, path):
+        self.add_statement('json_builder_add_string_value(jsonbuilder, %s->%s)' % (
             self.struct_name, flatten_path(path, field.field_name)))
 
-    def __add_base64blob(self, field: codegen.Field, path, outputfile):
-        self.start_scope(outputfile)
-        outputfile.write('\t\tgchar * payloadb64 = g_base64_encode(%s->%s, %s->%slen);\n' % (
+    def __add_base64blob(self, field: codegen.Field, path):
+        self.start_scope()
+        self.add_statement('gchar * payloadb64 = g_base64_encode(%s->%s, %s->%slen)' % (
             self.struct_name, field.field_name, self.struct_name, flatten_path(path, field.field_name)))
-        outputfile.write('\t\tjson_builder_add_string_value(jsonbuilder, payloadb64);\n')
-        outputfile.write('\t\tg_free(payloadb64);\n')
-        self.end_scope(outputfile)
+        self.add_statement('json_builder_add_string_value(jsonbuilder, payloadb64)')
+        self.add_statement('g_free(payloadb64)')
+        self.end_scope()
 
-    def __init__(self, struct_name: str, fields_and_annotations):
-        super().__init__(struct_name, fields_and_annotations)
+    def __init__(self, struct_name: str, fields_and_annotations, output_file):
+        super().__init__(struct_name, fields_and_annotations, output_file)
 
-    @staticmethod
-    def __set_field_name(name: str, outputfile):
-        outputfile.write('\tjson_builder_set_member_name(jsonbuilder, "%s");\n' % name)
+    def __set_field_name(self, name: str):
+        self.add_statement('json_builder_set_member_name(jsonbuilder, "%s")' % name)
 
-    @staticmethod
-    def __begin_object(outputfile):
-        outputfile.write('\tjson_builder_begin_object(jsonbuilder);\n')
+    def __begin_object(self):
+        self.add_statement('json_builder_begin_object(jsonbuilder)')
 
-    @staticmethod
-    def __end_object(outputfile):
-        outputfile.write('\tjson_builder_end_object(jsonbuilder);\n')
+    def __end_object(self):
+        self.add_statement('json_builder_end_object(jsonbuilder)')
 
     def __write(self, field: JsonField, path=[]):
         if field.name is not None:
-            self.__set_field_name(field.name, outputfile)
+            self.__set_field_name(field.name)
         if field.type == JsonFieldType.OBJECT:
             if field.c_field is not None:
                 path.append(field.c_field)
-            self.__begin_object(outputfile)
+            self.__begin_object()
             for c in field.children:
                 self.__write(c, path.copy())
-            self.__end_object(outputfile)
+            self.__end_object()
         elif field.type == JsonFieldType.INT:
-            self.__add_int(field.c_field, path, outputfile)
+            self.__add_int(field.c_field, path)
         elif field.type == JsonFieldType.DOUBLE:
-            self.__add_double(field.c_field, path, outputfile)
+            self.__add_double(field.c_field, path)
         elif field.type == JsonFieldType.STRING:
-            self.__add_string(field.c_field, path, outputfile)
+            self.__add_string(field.c_field, path)
         elif field.type == JsonFieldType.BASE64BLOB:
-            self.__add_base64blob(field.c_field, path, outputfile)
+            self.__add_base64blob(field.c_field, path)
         elif field.type == JsonFieldType.ENUM:
             pass
         else:
             assert False, ('couldn\'t write json type %s' % field.type)
 
-    def write(self, outputfile):
-        outputfile.write(
-            'static void __attribute__((unused)) __%s_%s_to_json(const struct %s* %s, JsonBuilder* jsonbuilder){\n' % (
-                TAG, self.struct_name, self.struct_name, self.struct_name))
+    def write(self):
+        function_name = '__%s_%s_to_json' % (TAG, self.struct_name)
+        struct_arg = codegen.Argument(self.struct_name, 'const struct %s*' % self.struct_name)
+        jsonbuilder_arg = codegen.Argument('jsonbuilder', 'JsonBuilder*')
+        self.start_function(function_name, static=True, args=[struct_arg, jsonbuilder_arg])
         self.__write(self.root)
-        outputfile.write('}\n\n')
+        self.end_function()
+
+
+output_file = None
 
 
 def __generate_parser(struct_name: str, fields_and_annotations):
-    return JsonParser(struct_name, fields_and_annotations)
+    return JsonParser(struct_name, fields_and_annotations, output_file)
 
 
 def __generate_builder(struct_name: str, fields_and_annotations):
-    return JsonBuilder(struct_name, fields_and_annotations)
+    return JsonBuilder(struct_name, fields_and_annotations, output_file)
 
 
 flag_to_generator = {
@@ -317,6 +315,8 @@ if __name__ == '__main__':
 
     flags = {}
 
+    output_file = open(args.output, 'w+')
+
     for annotated_struct in annotated_structs:
         f = flags.get(annotated_struct.struct_name)
         if f is None:
@@ -326,8 +326,6 @@ if __name__ == '__main__':
 
     outputs = codegen.find_structs(ast, __struct_callback, flags)
 
-    outputfile = open(args.output, 'w+')
-
-    codegen.HeaderBlock(TAG, args.input).write(outputfile)
+    codegen.HeaderBlock(TAG, args.input, output_file).write()
     for cb in outputs:
-        cb.write(outputfile)
+        cb.write()
