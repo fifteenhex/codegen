@@ -165,8 +165,13 @@ class CodeBlock:
         self.end_scope()
 
     def add_statement(self, statement: str):
+        cb = self.__get_active_block()
+        cb.__do_indent()
+        cb.output_file.write('%s;\n' % statement)
+
+    def add_include(self, path: str):
         self.__do_indent()
-        self.output_file.write('%s;\n' % statement)
+        self.output_file.write('#include <%s>\n' % path)
 
     def add_items(self, items: list):
         for item in items:
