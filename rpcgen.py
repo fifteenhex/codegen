@@ -75,7 +75,7 @@ class Endpoint:
         handler = codegen.CodeBlock(output_file)
         args = self.shared_args.copy()
         args[1:1] = map(lambda tp: codegen.Argument(tp.name, tp.c_type), self.topic_parts)
-        handler.function_prototype(self.function_name(), static=True, args=args)
+        handler.function_prototype(self.function_name(), static=True, rtype='int', args=args)
 
     def function_name(self):
         return '__%s_%s_%s' % (TAG, self.root, self.name)
@@ -116,7 +116,7 @@ if __name__ == '__main__':
     for endpoint in endpoints:
         dispatch.start_or_alternative('g_strcmp0(endpoint, "%s") == 0' % endpoint.name)
         dispatch.add_comment(endpoint.name)
-        dispatch.start_condition('(numtopicparts - 1) == %d' % len(endpoint.topic_parts))
+        dispatch.start_condition('(numtopicparts - 1) != %d' % len(endpoint.topic_parts))
         dispatch.add_statement(
             'g_message("incorrect number of topic parts for %s, expected %d and got %%d", numtopicparts)'
             % (endpoint.name, len(endpoint.topic_parts)))
@@ -126,7 +126,10 @@ if __name__ == '__main__':
         for tp in endpoint.topic_parts:
             tp.define_var_and_check(1 + endpoint.topic_parts.index(tp), dispatch)
         call_args = ['context'] + list(map(lambda tp: tp.name, endpoint.topic_parts)) + ['request', 'response']
-        dispatch.add_statement('%s(%s)' % (endpoint.function_name(), ', '.join(call_args)))
+        dispatch.add_statement('ret = %s(%s)' % (endpoint.function_name(), ', '.join(call_args)))
+    dispatch.add_else()
+    dispatch.add_statement('g_message("unknown endpoint %s", endpoint)')
+    dispatch.add_statement('ret = RPCGEN_ERR_INVALIDENDPOINT')
     dispatch.end_condition()
     dispatch.add_label('out')
     dispatch.add_statement('json_builder_set_member_name(response, "code")')
