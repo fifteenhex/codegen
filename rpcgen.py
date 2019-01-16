@@ -43,6 +43,7 @@ class TopicPart:
             # todo should probably assert here
 
             if checked:
+                codeblock.add_statement('g_message("bad %s")' % self.name)
                 codeblock.add_statement('ret = RPCGEN_ERR_BADTOPICPART')
                 codeblock.add_statement('goto out')
                 codeblock.end_condition()
@@ -77,7 +78,7 @@ class Endpoint:
         handler.function_prototype(self.function_name(), static=True, args=args)
 
     def function_name(self):
-        return '%s_%s' % (self.root, self.name)
+        return '__%s_%s_%s' % (TAG, self.root, self.name)
 
 
 if __name__ == '__main__':
@@ -115,7 +116,10 @@ if __name__ == '__main__':
     for endpoint in endpoints:
         dispatch.start_or_alternative('g_strcmp0(endpoint, "%s") == 0' % endpoint.name)
         dispatch.add_comment(endpoint.name)
-        dispatch.start_condition('numtopicparts - 1 == %d' % len(endpoint.topic_parts))
+        dispatch.start_condition('(numtopicparts - 1) == %d' % len(endpoint.topic_parts))
+        dispatch.add_statement(
+            'g_message("incorrect number of topic parts for %s, expected %d and got %%d", numtopicparts)'
+            % (endpoint.name, len(endpoint.topic_parts)))
         dispatch.add_statement('ret = RPCGEN_ERR_INVALIDTOPIC')
         dispatch.add_statement('goto out')
         dispatch.end_condition()
@@ -125,5 +129,7 @@ if __name__ == '__main__':
         dispatch.add_statement('%s(%s)' % (endpoint.function_name(), ', '.join(call_args)))
     dispatch.end_condition()
     dispatch.add_label('out')
+    dispatch.add_statement('json_builder_set_member_name(response, "code")')
+    dispatch.add_statement('json_builder_add_int_value(response, ret)')
     dispatch.add_statement('return ret')
     dispatch.end_function()
